@@ -1,12 +1,19 @@
-langchain
-langchain-openai
-langchain-community
-faiss-cpu
-tiktoken
-beautifulsoup4
-Flask
-gunicorn
-python-dotenv
-deep-translator
-langdetect
-bs4
+flask==3.0.0
+
+# LangChain core packages
+langchain==0.2.6
+langchain-core==0.2.12
+langchain-community==0.2.6
+langchain-openai==0.1.8
+
+# OpenAI official SDK
+openai==1.35.3
+
+# Vector store
+faiss-cpu==1.7.4
+
+# Text splitting, document utilities
+tiktoken==0.7.0
+
+# Environment variable loader (optional but recommended)
+python-dotenv==1.0.1
