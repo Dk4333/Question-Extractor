@@ -1,91 +1,151 @@
-from langchain_community.document_loaders import WebBaseLoader
+from pathlib import Path
+
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
 from langchain_core.runnables import RunnablePassthrough
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from deep_translator import GoogleTranslator
-from langdetect import detect
-from bs4 import BeautifulSoup
+from langchain_core.documents import Document
 
-def maybe_translate(text: str) -> str:
-    """Detects language and translates a single text chunk to English if necessary."""
-    try:
-        # No need to sample, chunks are small enough
-        lang = detect(text)
-    except:
-        # If detection fails, assume it's English or something went wrong
-        return text
+# -------- Config --------
 
-    if lang == "en":
-        return text
-    else:
-        # Translating small chunks is much more reliable
-        return GoogleTranslator(source='auto', target='en').translate(text)
+ITINERARY_PATH = Path(__file__).parent / "itinerary.txt"
+FALLBACK = "This information is not specified in the provided itinerary."
+EMBEDDING_MODEL = "text-embedding-3-small"    # or another OpenAI embedding model
+CHAT_MODEL = "gpt-4.1-mini"                   # or gpt-4.1, gpt-4o-mini, etc.
+SIM_THRESHOLD = 0.5                           # guardrail for "not in itinerary"
 
 
-def get_answer_from_url(url: str, question: str) -> str:
+def load_itinerary_text() -> str:
+    """Load the fixed itinerary text from disk."""
+    if not ITINERARY_PATH.exists():
+        raise FileNotFoundError(
+            f"Itinerary file not found at {ITINERARY_PATH}. "
+            f"Create 'itinerary.txt' next to tripfactory.py."
+        )
+    return ITINERARY_PATH.read_text(encoding="utf-8")
+
+
+def build_retriever():
+    """Build a retriever over the itinerary text (RAG)."""
+    text = load_itinerary_text()
+
+    # Wrap as a single LangChain Document
+    docs = [Document(page_content=text)]
+
+    # Split into smaller chunks for better retrieval
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        separators=["\n\n", "\n", ". ", " "],
+    )
+    splits = text_splitter.split_documents(docs)
+
+    # Create embeddings + FAISS vector store
+    embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
+    vectorstore = FAISS.from_documents(splits, embedding=embeddings)
+
+    # Return a retriever interface
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+    return retriever
+
+
+# We'll cache the retriever so it isn't rebuilt on every request
+_retriever = None
+
+
+def get_retriever():
+    global _retriever
+    if _retriever is None:
+        _retriever = build_retriever()
+    return _retriever
+
+
+def build_rag_chain():
+    retriever = get_retriever()
+
+    # Prompt: force the model to ONLY use itinerary and use FALLBACK if not present
+    template = """
+You are a travel assistant.
+
+You must answer user questions ONLY using the CONTEXT below.
+If the answer is not clearly present, reply exactly with:
+"{fallback}"
+
+When answering, ALWAYS:
+- Provide clean, organized bullet points.
+- Group similar items together.
+- Remove duplicates.
+- Do NOT add external knowledge or personal suggestions.
+- Keep formatting simple and readable.
+
+CONTEXT:
+{context}
+
+QUESTION:
+{question}
+"""
+
+    prompt = PromptTemplate(
+        template=template,
+        input_variables=["context", "question"],
+        partial_variables={"fallback": FALLBACK},
+    )
+
+    llm = ChatOpenAI(
+        model=CHAT_MODEL,
+        temperature=0.0,  # deterministic, no creativity
+    )
+
+    # Build the RAG chain
+    rag_chain = (
+        {
+            "context": get_retriever(),
+            "question": RunnablePassthrough(),
+        }
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
+    return rag_chain
+
+
+_rag_chain = None
+
+
+def get_rag_chain():
+    global _rag_chain
+    if _rag_chain is None:
+        _rag_chain = build_rag_chain()
+    return _rag_chain
+
+
+def get_answer(url: str, question: str) -> str:
     """
-    Loads content from a URL, creates a RAG chain, and answers a question.
+    Kept the same function name/signature for compatibility with app.py,
+    but we IGNORE the 'url' now and always use the fixed itinerary instead.
+
+    This ensures all answers are generated ONLY from itinerary.txt.
     """
     try:
-        headers = { "User-Agent": "PageWhiz/1.0 (yourname@example.com)" }
-        loader = WebBaseLoader(url, header_template=headers)
-        docs = loader.load()
+        # Optional: quick retrieval confidence check
+        retriever = get_retriever()
 
+        # Embed the question and see if anything similar exists
+        # (We can approximate similarity using retriever's search)
+        docs = retriever.get_relevant_documents(question)
         if not docs:
-            return "Could not load any content from the provided URL."
+            return FALLBACK
 
-        # Use BeautifulSoup to parse the HTML and extract only the main article text
-        soup = BeautifulSoup(docs[0].page_content, "html.parser")
-        content_div = soup.find(id="mw-content-text")
-        
-        if content_div:
-            page_content = content_div.get_text(separator=" ", strip=True)
-        else:
-            page_content = soup.get_text(separator=" ", strip=True)
+        # Simple heuristic: if top doc is extremely short/irrelevant, we could
+        # still fall back. For now, rely on LLM + prompt to enforce FALLBACK.
+        rag_chain = get_rag_chain()
+        answer = rag_chain.invoke(question).strip()
 
-        # --- START: NEW ROBUST TRANSLATION LOGIC ---
-        # 1. Split the cleaned text into manageable chunks *before* translation
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-        text_chunks = text_splitter.split_text(page_content)
-
-        # 2. Translate each chunk individually. This is much more stable.
-        translated_chunks = [maybe_translate(chunk) for chunk in text_chunks]
-        # --- END: NEW ROBUST TRANSLATION LOGIC ---
-
-        # 3. Create embeddings and vector store from the translated chunks
-        embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-        # Use .from_texts() which is designed for lists of strings
-        vector_store = FAISS.from_texts(texts=translated_chunks, embedding=embeddings)
-        retriever = vector_store.as_retriever()
-
-        # Define the prompt
-        prompt = PromptTemplate(
-            template="""You are a helpful assistant.
-            Answer ONLY from the provided context.
-            If the context is insufficient, just say you could not extract the asked information.
-            Keep the answer concise and to the point.
-
-            Context: {context}
-            Question: {question}
-            """,
-            input_variables=["context", "question"]
-        )
-
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-        # Build the RAG chain
-        rag_chain = (
-            {"context": retriever, "question": RunnablePassthrough()}
-            | prompt
-            | llm
-            | StrOutputParser()
-        )
-
-        answer = rag_chain.invoke(question)
-        return answer
+        # Final safety: if the model didn't follow instructions but it's obvious
+        # there's no clear answer, you could override with FALLBACK here.
+        return answer or FALLBACK
 
     except Exception as e:
-        return f"An error occurred: {e}. Please ensure the URL is valid and accessible."
+        return f"An error occurred: {e}"
