@@ -2,7 +2,6 @@
 
 ##  Features
 
--  **URL-based Context** — Paste any valid webpage URL, and the chatbot will understand and analyze its content.  
 -  **LangChain Integration** — Uses LangChain’s document loaders, text splitters, embeddings, and conversational retrieval.  
 -  **Conversational Memory** — The bot remembers chat history for better contextual answers.  
 -  **Local or API-based Models** — Works with OpenAI, Hugging Face, or local sentence-transformer models.  
@@ -14,10 +13,11 @@
 ## Architecture Overview
       ┌──────────────────────────────┐
       │          User Input           │
-      │ (Enter webpage URL + query)   │
+      │(Enter webpage URL/upload itinary
+       + query)      │
       └──────────────┬───────────────┘
                      │
-             [1] WebPageLoader
+             [1] WebPageLoader/document loaders
                      │
       ┌──────────────▼───────────────┐
       │    Text Extraction & Split    │
@@ -27,8 +27,8 @@
              [2] Embeddings (OpenAI/HF)
                      │
       ┌──────────────▼───────────────┐
-      │      Vector Store (FAISS)     │
-      │   + Similarity Search Index    │
+      │      Vector Store (FAISS)    │
+      │   + Similarity Search Index  │
       └──────────────┬───────────────┘
                      │
               [3] LangChain Retriever
