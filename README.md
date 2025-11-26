@@ -11,43 +11,46 @@
 ---
 
 ## Architecture Overview
-                     ┌──────────────────────────┐
-                     │    User (Web UI)          │
-                     │  - Types a question       │
-                     │  - Clicks Ask             │
-                     └─────────────┬─────────────┘
-                                   │  (POST Request)
-                                   ▼
-                     ┌──────────────────────────┐
-                     │        Flask Backend      │
-                     │        (app.py)           │
-                     │ - Receives question       │
-                     │ - Calls RAG engine        │
-                     └─────────────┬─────────────┘
-                                   │
-                                   ▼
-                 ┌──────────────────────────────────────────┐
-                 │               RAG Engine                 │
-                 │             (tripfactory.py)             │
-                 └──────────────────┬───────────────────────┘
+                                      ┌──────────────────────────┐
+                 │       User (Web UI)      │
+                 │   - Types a question     │
+                 │   - Clicks "Ask"         │
+                 └─────────────┬────────────┘
+                               │   (POST Request)
+                               ▼
+                 ┌──────────────────────────┐
+                 │     Flask Backend        │
+                 │         (app.py)         │
+                 │ - Receives question      │
+                 │ - Calls RAG engine       │
+                 └─────────────┬────────────┘
+                               │
+                               ▼
+             ┌──────────────────────────────────────────┐
+             │                 RAG Engine               │
+             │               (tripfactory.py)           │
+             └──────────────────┬───────────────────────┘
+                                │
+        ┌───────────────────────┼────────────────────────────┐
+        ▼                       ▼                            ▼
+┌────────────────┐    ┌────────────────────────┐    ┌───────────────────────────┐
+│ Itinerary Data │    │   Retriever (FAISS)    │    │      LLM (OpenAI)         │
+│ (itinerary.txt)│    │ - Embeds chunks        │    │ - Uses strict prompt      │
+│ - Raw text      │    │ - Vector similarity    │    │ - Answers ONLY using      │
+│ - Split chunks  │    │ - Returns top-k chunks │    │   retrieved context       │
+└────────────────┘    └────────────────────────┘    └───────────────────────────┘
+                                │
+                                ▼
+                      ┌──────────────────────────┐
+                      │     Retrieved Context     │
+                      │ (Top-k relevant chunks)   │
+                      └─────────────┬────────────┘
                                     │
-         ┌──────────────────────────┼──────────────────────────┐
-         ▼                          ▼                          ▼
-┌────────────────┐       ┌──────────────────────┐     ┌────────────────────────┐
-│ Itinerary Data │       │   Retriever (FAISS)  │     │     LLM (OpenAI)        │
-│ (itinerary.txt)│       │ - Embeds chunks      │     │ - Uses strict prompt    │
-│ - Raw text     │       │ - Top-k similarity   │     │ - Answers ONLY using    │
-│ - Split chunks │──────▶│   search             │────▶│   retrieved context     │
-└────────────────┘       └──────────────────────┘     │ - Returns fallback if   │
-                                                      │   info not present      │
-                                                      └────────────────────────┘
-
-                                   │
-                                   ▼
-                      ┌───────────────────────────────┐
-                      │   Final Answer (Flask UI)      │
-                      │ - Rendered back to the user    │
-                      └───────────────────────────────┘
+                                    ▼
+                       ┌──────────────────────────┐
+                       │     Final Answer (UI)    │
+                       │ Rendered back to the user│
+                       └──────────────────────────┘
 ---
 
 ##  Tech Stack
