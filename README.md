@@ -10,47 +10,47 @@
 
 ---
 
-## Architecture Overview
-                                      ┌──────────────────────────┐
-                 │       User (Web UI)      │
-                 │   - Types a question     │
-                 │   - Clicks "Ask"         │
-                 └─────────────┬────────────┘
-                               │   (POST Request)
-                               ▼
-                 ┌──────────────────────────┐
-                 │     Flask Backend        │
-                 │         (app.py)         │
-                 │ - Receives question      │
-                 │ - Calls RAG engine       │
-                 └─────────────┬────────────┘
-                               │
-                               ▼
-             ┌──────────────────────────────────────────┐
-             │                 RAG Engine               │
-             │               (tripfactory.py)           │
-             └──────────────────┬───────────────────────┘
-                                │
-        ┌───────────────────────┼────────────────────────────┐
-        ▼                       ▼                            ▼
-┌────────────────┐    ┌────────────────────────┐    ┌───────────────────────────┐
-│ Itinerary Data │    │   Retriever (FAISS)    │    │      LLM (OpenAI)         │
-│ (itinerary.txt)│    │ - Embeds chunks        │    │ - Uses strict prompt      │
-│ - Raw text      │    │ - Vector similarity    │    │ - Answers ONLY using      │
-│ - Split chunks  │    │ - Returns top-k chunks │    │   retrieved context       │
-└────────────────┘    └────────────────────────┘    └───────────────────────────┘
-                                │
-                                ▼
-                      ┌──────────────────────────┐
-                      │     Retrieved Context     │
-                      │ (Top-k relevant chunks)   │
-                      └─────────────┬────────────┘
-                                    │
-                                    ▼
-                       ┌──────────────────────────┐
-                       │     Final Answer (UI)    │
-                       │ Rendered back to the user│
-                       └──────────────────────────┘
+## Architecture Overview    
+        ┌────────────────────────┐
+        │      User (Web UI)      │
+        │  - Types question       │
+        │  - Clicks Ask           │
+        └───────────┬────────────┘
+                    │  POST
+                    ▼
+        ┌────────────────────────┐
+        │     Flask Backend       │
+        │        (app.py)         │
+        │ - Sends query to RAG    │
+        └───────────┬────────────┘
+                    │
+                    ▼
+        ┌────────────────────────┐
+        │       RAG Engine       │
+        │    (tripfactory.py)    │
+        └───────┬───────┬────────┘
+                │       │
+                ▼       ▼
+     ┌────────────────┐ ┌──────────────────┐
+     │ Itinerary Text  │ │   Retriever      │
+     │ (itinerary.txt) │ │   (FAISS +       │
+     │ - Split chunks  │ │   Embeddings)    │
+     └────────┬────────┘ └────────┬────────┘
+              │                   │
+              └──────────┬────────┘
+                         ▼
+            ┌────────────────────────┐
+            │    Retrieved Context    │
+            └───────────┬────────────┘
+                        ▼
+            ┌────────────────────────┐
+            │         LLM            │
+            │   (Answer from context)│
+            └───────────┬────────────┘
+                        ▼
+            ┌────────────────────────┐
+            │     Final Answer (UI)  │
+            └────────────────────────┘
 ---
 
 ##  Tech Stack
